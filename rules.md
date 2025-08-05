@@ -1,0 +1,12 @@
+- [ ] All dates from 2025-09-01 to 2025-09-30 are included
+- [ ] Each weekday has exactly 5 total assignments (P=1, S=2, M=2)
+- [ ] Each weekend/holiday has exactly 7 total assignments (P=2, S=2, M=3)
+- [ ] All personnel IDs are valid: 1, 2, 3, 4, 5, 6, 7, 8, 9
+- [ ] No person works shifts while on leave (L/LT/CT)
+- [ ] Shift sequence rules are followed (M→M/L, S→S/M/L, P→P/S/M/L)
+- [ ] No more than 2 consecutive night shifts per person
+- [ ] No more than 5 consecutive work days per person
+- [ ] Mandatory leave rules are applied after night shifts
+- [ ] No person exceeds 9 night shifts
+- [ ] Workload is reasonably balanced
+- [ ] Requested leaves (L) override mandatory leaves (LT/CT) when they conflict
