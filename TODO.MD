@@ -63,38 +63,121 @@ This document outlines the development plan for the medical shift scheduling app
 
 ## Phase 3: OR-Tools Solver Implementation (`app/solver/schedule_solver.py`)
 
-- [ ] **Initialize Solver Class**:
-    - [ ] Create a `ScheduleSolver` class that takes `ScheduleRequest` data as input.
-    - [ ] Initialize the `CpModel` from `ortools.sat.python.cp_model`.
-- [ ] **Define Solver Variables**:
-    - [ ] Create a 3D dictionary of boolean variables: `shifts[(person_id, day, shift_type)]`.
-- [ ] **Implement Core Constraints**:
-    - [ ] **Daily Staffing:** Enforce the exact number of personnel required for each shift (P, S, M) based on day type (weekday, weekend, holiday, special date).
-    - [ ] **No Double Shifts:** A person can work at most one shift per day.
-    - [ ] **Leave Enforcement:** A person on any type of leave (L, LT, CT) cannot be assigned any shift on that day.
-    - [ ] **Personnel Role Rules:**
-        - [ ] `non_shift` personnel can only be assigned to Morning (P) shifts on non-holiday weekdays.
-- [ ] **Implement Shift Sequence & Consecutive Work Rules**:
-    - [ ] **Invalid Transitions:**
-        - [ ] After a Night shift (M), the next day can only be another Night shift (M) or Leave (L).
-        - [ ] After an Evening shift (S), the next day cannot be a Morning shift (P).
-    - [ ] **Consecutive Shift Limits:**
-        - [ ] A person cannot work more than 2 consecutive Night shifts.
-        - [ ] A person cannot work more than 5 consecutive days (any shift combination).
-- [ ] **Implement Mandatory Leave Rules**:
-    - [ ] **Post-Night Shift Leave:**
-        - [ ] Add constraint: 1 Night shift (M) must be followed by 1 mandatory leave day (L).
-        - [ ] Add constraint: 2 consecutive Night shifts (MM) must be followed by 2 mandatory leave days (LL).
-    - [ ] **Leave Priority:** Ensure that pre-requested leaves (L/LT/CT) take precedence over mandatory post-night leaves if they overlap.
-- [ ] **Implement Global Constraints**:
-    - [ ] **Monthly Night Shift Limit:** A person cannot work more than the `max_night_shifts` (9) in the month.
-- [ ] **Define Objective Function (Workload Balancing)**:
-    - [ ] Add an objective to distribute the total number of shifts as evenly as possible among all "shift" personnel.
-    - [ ] (Optional) Add a secondary objective to minimize the number of `non_shift` personnel used.
-- [ ] **Develop Solver Execution Logic**:
-    - [ ] Create a `solve()` method that runs the `CpSolver`.
-    - [ ] Implement logic to handle solver status (`OPTIMAL`, `FEASIBLE`, `INFEASIBLE`).
-    - [ ] Create a solution printer/formatter that processes the solver's variable values and transforms them into the required JSON output format.
+## Personnel Role Rules
+
+### Shift Personnel (role: "shift")
+- Can work **all shift types**: P (Morning), S (Evening), M (Night)
+- Can work **all days**: weekdays, weekends, and holidays
+- **Primary workers** for all shifts
+
+### Non-Shift Personnel (role: "non_shift") 
+- Can **ONLY** work **Morning (P)** shifts
+- Can **ONLY** work on **weekdays** (Monday-Friday, excluding holidays)
+- **Cannot** work weekends or public holidays
+- **Secondary priority**: Use as backup for Morning shifts only when shift personnel are unavailable
+
+## Shift Requirements by Day Type
+
+### Weekdays (Monday-Friday, excluding holidays)
+- **P (Pagi/Morning)**: 1 person
+- **S (Sore/Evening)**: 2 people  
+- **M (Malam/Night)**: 2 people
+- **Total**: 5 people per weekday
+
+### Weekends & Holidays (Saturday, Sunday, Public Holidays)
+- **P (Pagi/Morning)**: 2 people
+- **S (Sore/Evening)**: 2 people
+- **M (Malam/Night)**: 3 people  
+- **Total**: 7 people per weekend/holiday
+
+## Critical Scheduling Rules
+
+### 1. Shift Sequence Rules (CRITICAL - MUST BE ENFORCED)
+**Valid shift transitions for consecutive days:**
+- **After Night (M)** → **Night (M)** or **Leave (L)** only
+  - Cannot go M → P or M → S (invalid transitions)
+- **After Afternoon (S)** → **S, M, or L** only  
+  - Cannot go S → P (invalid transition)
+- **After Morning (P)** → **P, S, M, or L** (all transitions allowed)
+
+**Consecutive shift limits:**
+- **Max 2 consecutive nights** → Must have leave after 2 consecutive M shifts
+- **Max 5 consecutive workdays** → Must have leave after 5 consecutive work shifts (any combination of P/S/M)
+
+### 2. Mandatory Leave Rules (CRITICAL - MUST BE ENFORCED)
+- **After 1 night shift alone**: Person gets 1 day mandatory leave (L) the next day
+- **After 2 consecutive night shifts**: Person gets 2 days mandatory leave (L) starting the next day
+- **IMPORTANT**: Use L (not LT/CT) for mandatory post-night-shift leaves
+- **Override priority**: If someone has pre-requested leave (L/LT/CT) on a day when they would get mandatory leave, the pre-requested leave takes priority
+- **Examples**:
+  - Day 5: Person works M → Day 6: Must have L (mandatory leave)
+  - Day 8-9: Person works MM → Day 10-11: Must have LL (mandatory leaves)
+
+### 3. Daily Staffing Requirements (MUST MATCH EXACTLY)
+**Weekdays (Monday-Friday, excluding holidays)**:
+- P (Morning): exactly 1 person
+- S (Evening): exactly 2 people  
+- M (Night): exactly 2 people
+- Total: exactly 5 people per weekday
+
+**Weekends & Holidays (Saturday, Sunday, Public Holidays)**:
+- P (Morning): exactly 2 people
+- S (Evening): exactly 2 people
+- M (Night): exactly 3 people  
+- Total: exactly 7 people per weekend/holiday
+
+**Special Dates** (if any): Use the exact custom requirements specified
+
+### 4. Shift Assignment Constraints
+- **No double shifts**: A person cannot work multiple shifts on the same day
+- **No shifts while on leave**: Person on any type of leave (L/LT/CT) cannot work shifts
+- **Night shift limits**: Maximum 9 night shifts (M) per person per month
+- **Workload balance**: Distribute shifts as evenly as possible among available personnel
+- **Morning shift priority**: For weekday Morning (P) shifts, prioritize shift personnel first, use non_shift personnel only as backup when shift personnel are unavailable due to constraints
+
+### 5. Leave Type Priorities
+- **L (Requested Leave)**: Can be pre-requested OR mandatory post-night-shift leave
+- **LT (Extra Leave)**: Pre-planned extra leave requests  
+- **CT (Annual Leave)**: Pre-planned annual leave
+
+### 6. Personnel Prioritization Strategy
+- **Priority 1**: Personnel with MORE total leave requests should be scheduled first (while they're available)
+- **Priority 2**: Balance workload among personnel with similar leave patterns
+- **Rationale**: Use high-leave personnel during their available days since they'll be unavailable during leave periods
+
+## Expected JSON Output Format
+
+The output should be a JSON object where each date is a key, and each shift type contains an array of personnel IDs:
+
+```json
+{
+  "2025-09-01": {
+    "P": [1],
+    "S": [2, 3], 
+    "M": [4, 5]
+  },
+  "2025-09-02": {
+    "P": [6],
+    "S": [7, 8],
+    "M": [9, 1]
+  },
+  // ... continue for all days in the month
+}
+```
+
+## Validation Checklist
+
+Before submitting your response, verify:
+- [ ] All dates from first to last date of the month are included
+- [ ] Each weekday has exactly 5 total assignments (P=1, S=2, M=2)
+- [ ] Each weekend/holiday has exactly 7 total assignments (P=2, S=2, M=3)
+- [ ] No person works shifts while on leave (L/LT/CT)
+- [ ] Shift sequence rules are followed (M→M/L, S→S/M/L, P→P/S/M/L)
+- [ ] No more than 2 consecutive night shifts per person
+- [ ] No more than 5 consecutive work days per person
+- [ ] Mandatory leave rules are applied after night shifts
+- [ ] No person exceeds 9 night shifts
+- [ ] Workload is reasonably balanced
 
 ---
 
