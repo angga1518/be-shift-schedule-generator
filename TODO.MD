@@ -6,15 +6,15 @@ This document outlines the development plan for the medical shift scheduling app
 
 ## Phase 1: Project Setup & Initial Configuration
 
-- [ ] **Initialize Python Environment**:
-    - [ ] Create a virtual environment (e.g., `python -m venv venv`).
-    - [ ] Activate the environment (`source venv/bin/activate`).
-- [ ] **Install Dependencies**:
-    - [ ] Install FastAPI: `pip install fastapi`.
-    - [ ] Install Uvicorn server: `pip install "uvicorn[standard]"`.
-    - [ ] Install Google OR-Tools: `pip install ortools`.
-    - [ ] Install Pydantic for data modeling (comes with FastAPI).
-- [ ] **Establish Project Structure**:
+- [x] **Initialize Python Environment**:
+    - [x] Create a virtual environment (e.g., `python -m venv venv`).
+    - [x] Activate the environment (`source venv/bin/activate`).
+- [x] **Install Dependencies**:
+    - [x] Install FastAPI: `pip install fastapi`.
+    - [x] Install Uvicorn server: `pip install "uvicorn[standard]"`.
+    - [x] Install Google OR-Tools: `pip install ortools`.
+    - [x] Install Pydantic for data modeling (comes with FastAPI).
+- [x] **Establish Project Structure**:
     ```
     /
     ├── app/
@@ -39,25 +39,25 @@ This document outlines the development plan for the medical shift scheduling app
     ├── requirements.txt
     └── README.md
     ```
-- [ ] **Create `requirements.txt`**:
-    - [ ] Freeze dependencies: `pip freeze > requirements.txt`.
-- [ ] **Setup `.gitignore`**:
-    - [ ] Add common Python ignores (`venv/`, `__pycache__/`, `.pyc`).
+- [x] **Create `requirements.txt`**:
+    - [x] Freeze dependencies: `pip freeze > requirements.txt`.
+- [x] **Setup `.gitignore`**:
+    - [x] Add common Python ignores (`venv/`, `__pycache__/`, `.pyc`).
 
 ---
 
 ## Phase 2: Data Modeling (`app/models/schemas.py`)
 
-- [ ] **Define Input Models**:
-    - [ ] Create `Personnel` Pydantic model (`id`, `name`, `role`, `requested_leaves`, `extra_leaves`, `annual_leaves`).
-    - [ ] Create `ScheduleConfig` Pydantic model (`month`, `public_holidays`, `max_night_shifts`, `special_dates`).
-    - [ ] Create main `ScheduleRequest` model to encapsulate all input data.
-- [ ] **Define Output Models**:
-    - [ ] Create `Shift` model (`P`, `S`, `M` fields, each a list of personnel IDs).
-    - [ ] Create `ScheduleResponse` model, which is a dictionary mapping dates (strings) to `Shift` objects, to match the required JSON output.
-- [ ] **Date & Holiday Logic (`app/core/config.py`)**:
-    - [ ] Implement logic to determine weekdays, weekends, and holidays for the given month (2025-09).
-    - [ ] Store shift types (P, S, M) and other constants.
+- [x] **Define Input Models**:
+    - [x] Create `Personnel` Pydantic model (`id`, `name`, `role`, `requested_leaves`, `extra_leaves`, `annual_leaves`).
+    - [x] Create `ScheduleConfig` Pydantic model (`month`, `public_holidays`, `max_night_shifts`, `special_dates`).
+    - [x] Create main `ScheduleRequest` model to encapsulate all input data.
+- [x] **Define Output Models**:
+    - [x] Create `Shift` model (`P`, `S`, `M` fields, each a list of personnel IDs).
+    - [x] Create `ScheduleResponse` model, which is a dictionary mapping dates (strings) to `Shift` objects, to match the required JSON output.
+- [x] **Date & Holiday Logic (`app/core/config.py`)**:
+    - [x] Implement logic to determine weekdays, weekends, and holidays for the given month (2025-09).
+    - [x] Store shift types (P, S, M) and other constants.
 
 ---
 
