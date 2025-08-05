@@ -201,7 +201,8 @@ Before submitting your response, verify:
 
 ---
 
-## Phase 5: Testing (`tests/test_scheduler.py`)
+## Phase 5: Testing (`tests/test_scheduler.py`) - COMPLETED
+
 
 - [ ] **Setup Testing Framework**:
     - [ ] Configure `pytest` to run the tests.

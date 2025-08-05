@@ -1,5 +1,7 @@
 import calendar
 from datetime import date, timedelta
+from typing import List
+
 
 # --- Shift Types ---
 SHIFT_TYPES = ["P", "S", "M"]

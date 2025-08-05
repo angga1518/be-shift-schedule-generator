@@ -1,5 +1,9 @@
-from .schedule_solver import ScheduleSolver
+from __future__ import annotations
+from typing import TYPE_CHECKING
 from ..core.config import get_day_type, SHIFT_TYPES, DayTypes
+
+if TYPE_CHECKING:
+    from .schedule_solver import ScheduleSolver
 
 def add_all_constraints(solver: ScheduleSolver):
     """
