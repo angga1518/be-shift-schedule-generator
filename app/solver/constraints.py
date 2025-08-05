@@ -125,46 +125,58 @@ def _add_critical_scheduling_rules(solver: ScheduleSolver):
 
 def _add_mandatory_leave_constraints(solver: ScheduleSolver, p_id: int, m_idx: int):
     """
-    Implements mandatory leave rules based on TypeScript algorithm logic:
+    Implements mandatory leave rules with simplified logic:
     - After single night shift (M not preceded/followed by M): 1 day mandatory leave
     - After 2 consecutive night shifts (MM): 2 days mandatory leave
     """
-    for d_idx in range(solver.num_days):
+    # Get person's requested leaves to avoid conflicts
+    person = solver.personnel[p_id]
+    all_requested_leaves = set(person.requested_leaves + person.extra_leaves + person.annual_leaves)
+    
+    # Single night shift rule
+    for d_idx in range(solver.num_days - 1):
         if d_idx + 1 < solver.num_days:
-            # Check if this is a single night shift
-            is_single_night = solver.model.NewBoolVar(f'single_night_{p_id}_{d_idx}')
+            # Single M: M today AND (not M yesterday OR first day) AND not M tomorrow
+            is_single_m = solver.model.NewBoolVar(f'single_m_{p_id}_{d_idx}')
             
-            # Single night: M today, not M yesterday (or start), not M tomorrow
-            conditions_single = [solver.shifts[(p_id, d_idx, m_idx)]]  # Today is M
+            # Conditions for single night
+            conditions = [solver.shifts[(p_id, d_idx, m_idx)]]  # Today is M
             if d_idx > 0:
-                conditions_single.append(solver.shifts[(p_id, d_idx - 1, m_idx)].Not())  # Yesterday not M
-            conditions_single.append(solver.shifts[(p_id, d_idx + 1, m_idx)].Not())  # Tomorrow not M
+                conditions.append(solver.shifts[(p_id, d_idx - 1, m_idx)].Not())  # Yesterday not M
+            conditions.append(solver.shifts[(p_id, d_idx + 1, m_idx)].Not())  # Tomorrow not M
             
-            solver.model.AddBoolAnd(conditions_single).OnlyEnforceIf(is_single_night)
+            solver.model.AddBoolAnd(conditions).OnlyEnforceIf(is_single_m)
+            solver.model.AddBoolOr([cond.Not() for cond in conditions]).OnlyEnforceIf(is_single_m.Not())
             
-            # If single night, tomorrow must be leave
-            if d_idx + 1 < solver.num_days:
-                solver.model.Add(
-                    sum(solver.shifts[(p_id, d_idx + 1, s)] for s in range(solver.num_shifts)) == 0
-                ).OnlyEnforceIf(is_single_night)
-        
-        if d_idx + 3 < solver.num_days:
-            # Check for end of 2 consecutive nights (MM pattern ending)
-            is_double_night_end = solver.model.NewBoolVar(f'double_night_end_{p_id}_{d_idx}')
+            # If single M and tomorrow not already on requested leave, tomorrow must be leave
+            tomorrow_day = d_idx + 2  # Convert to 1-indexed day
+            if tomorrow_day not in all_requested_leaves and d_idx + 1 < solver.num_days:
+                for s_idx in range(solver.num_shifts):
+                    solver.model.AddImplication(is_single_m, solver.shifts[(p_id, d_idx + 1, s_idx)].Not())
+    
+    # Two consecutive nights rule
+    for d_idx in range(solver.num_days - 1):
+        if d_idx + 2 < solver.num_days:  # Need at least 2 days after for mandatory leave
+            # Two consecutive M: M today AND M tomorrow
+            consecutive_m = solver.model.NewBoolVar(f'consecutive_m_{p_id}_{d_idx}')
             
-            # Double night end: M yesterday, M today, not M tomorrow
-            conditions_double = [
-                solver.shifts[(p_id, d_idx - 1, m_idx)] if d_idx > 0 else solver.model.NewBoolVar(f'dummy_false_{p_id}_{d_idx}'),  # Yesterday M
-                solver.shifts[(p_id, d_idx, m_idx)],     # Today M
+            solver.model.AddBoolAnd([
+                solver.shifts[(p_id, d_idx, m_idx)],     # Today is M
+                solver.shifts[(p_id, d_idx + 1, m_idx)]  # Tomorrow is M
+            ]).OnlyEnforceIf(consecutive_m)
+            
+            solver.model.AddBoolOr([
+                solver.shifts[(p_id, d_idx, m_idx)].Not(),     # Today not M OR
                 solver.shifts[(p_id, d_idx + 1, m_idx)].Not()  # Tomorrow not M
-            ]
+            ]).OnlyEnforceIf(consecutive_m.Not())
             
-            if d_idx > 0:  # Only apply if not first day
-                solver.model.AddBoolAnd(conditions_double).OnlyEnforceIf(is_double_night_end)
+            # After MM, next 2 days must be leave (if not already on requested leave)
+            for offset in [2, 3]:  # Day after MM and day after that
+                leave_day_idx = d_idx + offset
+                leave_day_num = leave_day_idx + 1  # Convert to 1-indexed day
                 
-                # After MM, next 2 days must be leave
-                for leave_day in [d_idx + 1, d_idx + 2]:
-                    if leave_day < solver.num_days:
-                        solver.model.Add(
-                            sum(solver.shifts[(p_id, leave_day, s)] for s in range(solver.num_shifts)) == 0
-                        ).OnlyEnforceIf(is_double_night_end)
+                if (leave_day_idx < solver.num_days and 
+                    leave_day_num not in all_requested_leaves):
+                    # Enforce mandatory leave only if not already on requested leave
+                    for s_idx in range(solver.num_shifts):
+                        solver.model.AddImplication(consecutive_m, solver.shifts[(p_id, leave_day_idx, s_idx)].Not())
