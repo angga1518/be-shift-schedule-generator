@@ -172,6 +172,7 @@ Before submitting your response, verify:
 - [ ] All dates from first to last date of the month are included
 - [ ] Each weekday has exactly 5 total assignments (P=1, S=2, M=2)
 - [ ] Each weekend/holiday has exactly 7 total assignments (P=2, S=2, M=3)
+- [ ] All personnel IDs are valid (including both shift and non_shift personnel)
 - [ ] No person works shifts while on leave (L/LT/CT)
 - [ ] Shift sequence rules are followed (M→M/L, S→S/M/L, P→P/S/M/L)
 - [ ] No more than 2 consecutive night shifts per person
@@ -179,6 +180,7 @@ Before submitting your response, verify:
 - [ ] Mandatory leave rules are applied after night shifts
 - [ ] No person exceeds 9 night shifts
 - [ ] Workload is reasonably balanced
+- [ ] Requested leaves (L) override mandatory leaves (LT/CT) when they conflict
 
 ---
 

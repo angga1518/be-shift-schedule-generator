@@ -36,9 +36,17 @@ class ScheduleSolver:
 
     def _add_objective(self):
         """
-        Adds the objective function to the model to balance the workload.
+        Enhanced objective function based on TypeScript algorithm insights:
+        - Balance workload across personnel
+        - Prefer even distribution of night shifts
+        - Minimize violations and gaps
         """
+        # 1. Primary: Balance total workload
         work_counts = []
+        night_counts = []
+        
+        night_shift_idx = SHIFT_TYPES.index("M")
+        
         for p_id in self.personnel:
             total_shifts_for_person = sum(
                 self.shifts[(p_id, d_idx, s_idx)] 
@@ -46,28 +54,85 @@ class ScheduleSolver:
                 for s_idx in range(self.num_shifts)
             )
             work_counts.append(total_shifts_for_person)
+            
+            # Track night shift distribution
+            night_shifts_for_person = sum(
+                self.shifts[(p_id, d_idx, night_shift_idx)]
+                for d_idx in range(self.num_days)
+            )
+            night_counts.append(night_shifts_for_person)
 
+        # Balance total workload (primary objective)
         min_shifts = self.model.NewIntVar(0, self.num_days, 'min_shifts')
         max_shifts = self.model.NewIntVar(0, self.num_days, 'max_shifts')
         self.model.AddMinEquality(min_shifts, work_counts)
         self.model.AddMaxEquality(max_shifts, work_counts)
         
-        self.model.Minimize(max_shifts - min_shifts)
+        # Balance night shift distribution (secondary objective)
+        min_nights = self.model.NewIntVar(0, self.config.max_night_shifts, 'min_nights')
+        max_nights = self.model.NewIntVar(0, self.config.max_night_shifts, 'max_nights')
+        self.model.AddMinEquality(min_nights, night_counts)
+        self.model.AddMaxEquality(max_nights, night_counts)
+        
+        # Multi-objective: minimize workload imbalance and night shift imbalance
+        workload_spread = max_shifts - min_shifts
+        night_spread = max_nights - min_nights
+        
+        # Weight: workload balance is more important than night balance
+        self.model.Minimize(workload_spread * 3 + night_spread)
 
     def solve(self) -> Dict[str, Shift] | None:
         """
-        Builds the model with all constraints and solves it.
+        Builds the model with all constraints and solves it using multiple strategies.
+        Inspired by TypeScript algorithm's retry mechanism.
         """
         self._create_decision_variables()
         self._add_constraints()
         self._add_objective()
 
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 60.0
+        
+        # Strategy 1: Default search with longer time limit
+        solver.parameters.max_time_in_seconds = 30.0
+        solver.parameters.num_search_workers = 4  # Use multiple threads
+        
+        print("Attempting solve with enhanced search strategy...")
         status = solver.Solve(self.model)
 
+        print(f"Solver status: {solver.StatusName(status)}")
+        
+        if status == cp_model.OPTIMAL:
+            print("Found optimal solution")
+            return self._format_solution(solver)
+        elif status == cp_model.FEASIBLE:
+            print("Found feasible solution")
+            return self._format_solution(solver)
+        
+        # Strategy 2: If no solution found, try with relaxed time and different search
+        print("First attempt failed, trying with different search strategy...")
+        solver.parameters.max_time_in_seconds = 60.0
+        solver.parameters.preferred_variable_order = cp_model.CpSolverParameters.IN_ORDER
+        
+        status = solver.Solve(self.model)
+        print(f"Second attempt status: {solver.StatusName(status)}")
+        
         if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
             return self._format_solution(solver)
+        
+        # Strategy 3: Last resort with longest time limit
+        print("Second attempt failed, final attempt with maximum time...")
+        solver.parameters.max_time_in_seconds = 120.0
+        solver.parameters.linearization_level = 2
+        
+        status = solver.Solve(self.model)
+        print(f"Final attempt status: {solver.StatusName(status)}")
+        
+        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+            return self._format_solution(solver)
+        elif status == cp_model.INFEASIBLE:
+            print("❌ Problem is infeasible - constraints cannot be satisfied")
+        elif status == cp_model.MODEL_INVALID:
+            print("❌ Model is invalid")
         
         return None
 

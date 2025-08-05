@@ -55,12 +55,29 @@ def test_generate_schedule_endpoint(test_payload: ScheduleRequest):
     assert response.status_code == 200
     schedule_data = response.json()["schedule"]
 
+    # --- Debug: Print the schedule ---
+    print("\n=== GENERATED SCHEDULE ===")
+    for date_str in sorted(schedule_data.keys()):
+        shifts = schedule_data[date_str]
+        print(f"{date_str}: P={shifts['P']}, S={shifts['S']}, M={shifts['M']}")
+
     # --- Validation Setup ---
     personnel_schedules = {p.id: {} for p in test_payload.personnel}
     for date_str, shifts in schedule_data.items():
         for shift_type, p_ids in shifts.items():
             for p_id in p_ids:
                 personnel_schedules[p_id][date_str] = shift_type
+
+    # --- Debug: Print personnel schedules ---
+    print("\n=== PERSONNEL SCHEDULES ===")
+    for p_id, schedule in personnel_schedules.items():
+        if schedule:  # Only print if person has any shifts
+            days = []
+            for day_num in range(1, 31):
+                date_str = f"2025-09-{day_num:02d}"
+                shift = schedule.get(date_str, '_')
+                days.append(shift)
+            print(f"Person {p_id}: {''.join(days)}")
 
     # --- Rule Validations ---
     _validate_all_dates_present(schedule_data)
@@ -121,16 +138,20 @@ def _validate_critical_rules(personnel_schedules):
 
                 # Mandatory Leave
                 if shift_today == 'M':
+                    # Check if this is a single night shift (not preceded by M and not followed by M)
                     is_single_m = (schedule.get(f"2025-09-{day_num-1:02d}") != 'M' and 
                                    schedule.get(f"2025-09-{day_num+1:02d}") != 'M')
                     if is_single_m and day_num < 30:
+                        # After single night shift, next day must be leave
                         assert f"2025-09-{day_num+1:02d}" not in schedule
 
-                    is_double_m_start = (schedule.get(f"2025-09-{day_num-1:02d}") != 'M' and
-                                         schedule.get(f"2025-09-{day_num+1:02d}") == 'M')
-                    if is_double_m_start and day_num < 29:
+                    # Check if this is the end of 2 consecutive night shifts
+                    is_double_m_end = (schedule.get(f"2025-09-{day_num-1:02d}") == 'M' and
+                                       schedule.get(f"2025-09-{day_num+1:02d}") != 'M')
+                    if is_double_m_end and day_num < 29:
+                        # After 2 consecutive nights, next 2 days must be leave
+                        assert f"2025-09-{day_num+1:02d}" not in schedule
                         assert f"2025-09-{day_num+2:02d}" not in schedule
-                        assert f"2025-09-{day_num+3:02d}" not in schedule
         
         # Consecutive Days
         work_stretches = "".join(['W' if f"2025-09-{d:02d}" in schedule else '_' for d in range(1, 31)])
