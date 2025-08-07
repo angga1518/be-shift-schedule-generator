@@ -86,53 +86,64 @@ class ScheduleSolver:
         Builds the model with all constraints and solves it using multiple strategies.
         Inspired by TypeScript algorithm's retry mechanism.
         """
-        self._create_decision_variables()
-        self._add_constraints()
-        self._add_objective()
+        try:
+            self._create_decision_variables()
+            self._add_constraints()
+            self._add_objective()
 
-        solver = cp_model.CpSolver()
-        
-        # Strategy 1: Default search with longer time limit
-        solver.parameters.max_time_in_seconds = 30.0
-        solver.parameters.num_search_workers = 4  # Use multiple threads
-        
-        print("Attempting solve with enhanced search strategy...")
-        status = solver.Solve(self.model)
+            solver = cp_model.CpSolver()
+            
+            # Strategy 1: Default search with longer time limit
+            solver.parameters.max_time_in_seconds = 30.0
+            solver.parameters.num_search_workers = 4  # Use multiple threads
+            
+            print("Attempting solve with enhanced search strategy...")
+            status = solver.Solve(self.model)
 
-        print(f"Solver status: {solver.StatusName(status)}")
-        
-        if status == cp_model.OPTIMAL:
-            print("Found optimal solution")
-            return self._format_solution(solver)
-        elif status == cp_model.FEASIBLE:
-            print("Found feasible solution")
-            return self._format_solution(solver)
-        
-        # Strategy 2: If no solution found, try with relaxed time and different search
-        print("First attempt failed, trying with different search strategy...")
-        solver.parameters.max_time_in_seconds = 60.0
-        solver.parameters.preferred_variable_order = cp_model.CpSolverParameters.IN_ORDER
-        
-        status = solver.Solve(self.model)
-        print(f"Second attempt status: {solver.StatusName(status)}")
-        
-        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            return self._format_solution(solver)
-        
-        # Strategy 3: Last resort with longest time limit
-        print("Second attempt failed, final attempt with maximum time...")
-        solver.parameters.max_time_in_seconds = 120.0
-        solver.parameters.linearization_level = 2
-        
-        status = solver.Solve(self.model)
-        print(f"Final attempt status: {solver.StatusName(status)}")
-        
-        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            return self._format_solution(solver)
-        elif status == cp_model.INFEASIBLE:
-            print("❌ Problem is infeasible - constraints cannot be satisfied")
-        elif status == cp_model.MODEL_INVALID:
-            print("❌ Model is invalid")
+            print(f"Solver status: {solver.StatusName(status)}")
+            
+            if status == cp_model.OPTIMAL:
+                print("Found optimal solution")
+                return self._format_solution(solver)
+            elif status == cp_model.FEASIBLE:
+                print("Found feasible solution")
+                return self._format_solution(solver)
+            
+            # Strategy 2: If no solution found, try with relaxed time
+            print("First attempt failed, trying with longer time limit...")
+            solver.parameters.max_time_in_seconds = 60.0
+            
+            status = solver.Solve(self.model)
+            print(f"Second attempt status: {solver.StatusName(status)}")
+            
+            if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+                return self._format_solution(solver)
+            
+            # Strategy 3: Last resort with longest time limit
+            print("Second attempt failed, final attempt with maximum time...")
+            solver.parameters.max_time_in_seconds = 120.0
+            solver.parameters.linearization_level = 2
+            
+            status = solver.Solve(self.model)
+            print(f"Final attempt status: {solver.StatusName(status)}")
+            
+            if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+                return self._format_solution(solver)
+            elif status == cp_model.INFEASIBLE:
+                print("❌ Problem is infeasible - constraints cannot be satisfied")
+                raise ValueError("INFEASIBLE: The scheduling constraints cannot be satisfied with the given parameters. Please check personnel availability, leave requests, or adjust requirements.")
+            elif status == cp_model.MODEL_INVALID:
+                print("❌ Model is invalid")
+                raise ValueError("MODEL_INVALID: There is an error in the scheduling model formulation.")
+            else:
+                raise ValueError("UNKNOWN: Unable to find a solution within the time limit. Try again or adjust constraints.")
+                
+        except Exception as e:
+            if "INFEASIBLE" in str(e) or "MODEL_INVALID" in str(e) or "UNKNOWN" in str(e):
+                raise e  # Re-raise our custom errors
+            else:
+                print(f"❌ Unexpected error in solver: {e}")
+                raise ValueError(f"SOLVER_ERROR: An unexpected error occurred during scheduling: {str(e)}")
         
         return None
 
