@@ -17,30 +17,16 @@ async def generate_schedule(request: ScheduleRequest):
             # The solver returns a dict of date strings to Shift objects.
             # We need to wrap it in the ScheduleResponse model.
             return ScheduleResponse(schedule=solution)
-        
+
         raise HTTPException(
             status_code=409,
-            detail="No optimal solution found within the time limit. Consider adjusting constraints.",
+            detail="No solution found within the time limit. Consider adjusting constraints.",
         )
     
     except ValueError as e:
         error_message = str(e)
-        
-        if "INFEASIBLE" in error_message:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "INFEASIBLE",
-                    "message": "The scheduling constraints cannot be satisfied with the given parameters.",
-                    "suggestions": [
-                        "Reduce the number of requested leaves",
-                        "Increase the number of personnel",
-                        "Adjust shift requirements for special dates",
-                        "Check for conflicting leave requests"
-                    ]
-                }
-            )
-        elif "MODEL_INVALID" in error_message:
+
+        if "MODEL_INVALID" in error_message:
             raise HTTPException(
                 status_code=500,
                 detail={

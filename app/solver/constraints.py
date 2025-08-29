@@ -13,6 +13,7 @@ def add_all_constraints(solver: ScheduleSolver):
     _add_shift_assignment_constraints(solver)
     _add_leave_constraints(solver)
     _add_personnel_role_constraints(solver)
+    _add_non_shift_limit_constraints(solver)
     _add_critical_scheduling_rules(solver)
 
 
@@ -79,7 +80,7 @@ def _add_personnel_role_constraints(solver: ScheduleSolver):
         if person.role == "non_shift":
             for d_idx, d_date in enumerate(solver.dates):
                 day_type = get_day_type(d_date, solver.config.public_holidays)
-                
+
                 if day_type == DayTypes.WEEKEND_HOLIDAY:
                     for s_idx in range(solver.num_shifts):
                         solver.model.Add(solver.shifts[(p_id, d_idx, s_idx)] == 0)
@@ -87,6 +88,39 @@ def _add_personnel_role_constraints(solver: ScheduleSolver):
                     for s_idx, s_type in enumerate(SHIFT_TYPES):
                         if s_type != "P":
                             solver.model.Add(solver.shifts[(p_id, d_idx, s_idx)] == 0)
+
+
+def _add_non_shift_limit_constraints(solver: ScheduleSolver):
+    """
+    Limits the maximum number of non-shift personnel that can be used.
+    If max_non_shift is None, no limit is applied.
+    """
+    if solver.config.max_non_shift is None:
+        return  # No limit specified
+
+    # Get all non-shift personnel IDs
+    non_shift_personnel = [p_id for p_id, person in solver.personnel.items() if person.role == "non_shift"]
+
+    if not non_shift_personnel:
+        return  # No non-shift personnel to limit
+
+    # For each day, count how many non-shift personnel are working
+    for d_idx in range(solver.num_days):
+        non_shift_working_on_day = []
+
+        for p_id in non_shift_personnel:
+            # Check if this non-shift person is working any shift on this day
+            person_working = solver.model.NewBoolVar(f'non_shift_{p_id}_working_d{d_idx}')
+            shifts_on_day = [solver.shifts[(p_id, d_idx, s_idx)] for s_idx in range(solver.num_shifts)]
+
+            # Person is working if they have any shift assigned
+            solver.model.Add(sum(shifts_on_day) >= 1).OnlyEnforceIf(person_working)
+            solver.model.Add(sum(shifts_on_day) == 0).OnlyEnforceIf(person_working.Not())
+
+            non_shift_working_on_day.append(person_working)
+
+        # Limit the number of non-shift personnel working on this day
+        solver.model.Add(sum(non_shift_working_on_day) <= solver.config.max_non_shift)
 
 
 def _add_critical_scheduling_rules(solver: ScheduleSolver):

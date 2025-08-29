@@ -13,6 +13,7 @@ class ScheduleConfig(BaseModel):
     month: str
     public_holidays: List[int]
     max_night_shifts: int
+    max_non_shift: Optional[int] = None  # Maximum number of non-shift personnel that can be used, None means no limit
     special_dates: Dict[str, Dict[str, int]] = {}
 
 class ScheduleRequest(BaseModel):
