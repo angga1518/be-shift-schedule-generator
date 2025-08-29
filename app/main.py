@@ -13,7 +13,8 @@ app = FastAPI(
 # CORS settings
 origins = [
     "http://localhost:3000",
-    "https://laras-shift.erlangga.xyz"
+    "https://laras-shift.erlangga.xyz",
+    "http://localhost:3001"
 ]
 
 app.add_middleware(

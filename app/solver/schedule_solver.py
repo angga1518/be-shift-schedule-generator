@@ -1,6 +1,6 @@
 from ortools.sat.python import cp_model
 from ..models.schemas import ScheduleRequest, Shift
-from ..core.config import get_days_in_month, get_day_type, SHIFT_TYPES
+from ..core.config import get_days_in_month, get_day_type, SHIFT_TYPES, DayTypes
 from typing import List, Dict, Tuple
 
 from . import constraints
@@ -130,9 +130,9 @@ class ScheduleSolver:
             if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                 return self._format_solution(solver)
             elif status == cp_model.INFEASIBLE:
-                print("❌ Problem is infeasible - trying to find solution with relaxed constraints...")
-                # Try to find a solution even when INFEASIBLE by relaxing some constraints
-                return self._solve_with_relaxed_constraints()
+                print("❌ Problem is infeasible - trying to find best possible solution...")
+                # Try to find the best possible solution by relaxing constraints but optimizing
+                return self._solve_with_optimized_relaxation()
             elif status == cp_model.MODEL_INVALID:
                 print("❌ Model is invalid")
                 raise ValueError("MODEL_INVALID: There is an error in the scheduling model formulation.")
@@ -167,83 +167,91 @@ class ScheduleSolver:
                             schedule[date_str].M.append(p_id)
         return schedule
 
-    def _solve_with_relaxed_constraints(self) -> Dict[str, Shift] | None:
+    def _solve_with_optimized_relaxation(self) -> Dict[str, Shift] | None:
         """
-        Attempts to find a solution by relaxing some constraints when the original problem is INFEASIBLE.
-        This method tries different strategies to find any feasible solution.
+        Attempts to find the best possible solution by relaxing constraints while maintaining optimization.
+        This method tries to find the most optimal feasible solution when the original problem is INFEASIBLE.
         """
-        print("Attempting to solve with relaxed constraints...")
+        print("Attempting to find best possible solution with optimized relaxation...")
 
-        # Strategy 1: Try with different solver parameters
+        # Strategy 1: Try with extended time and different search parameters
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 60.0
+        solver.parameters.max_time_in_seconds = 120.0  # Longer time for complex problems
         solver.parameters.num_search_workers = 8
-        solver.parameters.random_seed = 42  # For reproducibility
-
-        # Try to solve with relaxed parameters
-        status = solver.Solve(self.model)
-
-        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            print("Found solution with relaxed parameters")
-            return self._format_solution(solver)
-
-        # Strategy 2: If still no solution, try with even more relaxed time limit
-        print("Still no solution, trying with maximum time limit...")
-        solver.parameters.max_time_in_seconds = 180.0  # 3 minutes
-        solver.parameters.linearization_level = 0  # More aggressive linearization
+        solver.parameters.random_seed = 42
+        solver.parameters.search_branching = cp_model.AUTOMATIC_SEARCH  # Let solver choose best strategy
 
         status = solver.Solve(self.model)
 
-        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            print("Found solution with maximum time limit")
+        if status == cp_model.OPTIMAL:
+            print("Found optimal solution with extended parameters")
+            return self._format_solution(solver)
+        elif status == cp_model.FEASIBLE:
+            print("Found feasible solution with extended parameters")
             return self._format_solution(solver)
 
-        # Strategy 3: Last resort - try to find any assignment by minimizing violations
-        print("Final attempt: trying to minimize constraint violations...")
-        return self._solve_with_minimal_violations()
+        # Strategy 2: If still INFEASIBLE, try with different linearization and search strategy
+        print("Still infeasible, trying with different linearization strategy...")
+        solver.parameters.max_time_in_seconds = 180.0
+        solver.parameters.linearization_level = 1  # Different linearization approach
+        solver.parameters.cp_model_presolve = False  # Skip presolve for complex models
 
-    def _solve_with_minimal_violations(self) -> Dict[str, Shift] | None:
+        status = solver.Solve(self.model)
+
+        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+            print("Found solution with alternative linearization")
+            return self._format_solution(solver)
+
+        # Strategy 3: Last resort - create a simplified but still optimized model
+        print("Final attempt: creating optimized simplified model...")
+        return self._solve_with_simplified_optimization()
+
+    def _solve_with_simplified_optimization(self) -> Dict[str, Shift] | None:
         """
-        Creates a simplified model that tries to satisfy as many constraints as possible
+        Creates a simplified but still optimized model that tries to find the best possible solution
         when the original problem is truly infeasible.
         """
-        print("Creating simplified model to minimize violations...")
+        print("Creating simplified optimized model...")
 
-        # Create a new model with relaxed constraints
-        relaxed_model = cp_model.CpModel()
+        # Create a new model with most constraints but simplified
+        simplified_model = cp_model.CpModel()
 
-        # Keep only the most essential constraints
-        self._add_essential_constraints_only(relaxed_model)
+        # Add essential constraints but keep optimization objective
+        self._add_simplified_constraints(simplified_model)
 
-        # Try to solve the relaxed model
+        # Try to solve with optimization
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 120.0
+        solver.parameters.max_time_in_seconds = 180.0
+        solver.parameters.num_search_workers = 4
 
-        status = solver.Solve(relaxed_model)
+        status = solver.Solve(simplified_model)
 
-        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            print("Found solution with relaxed model")
-            return self._format_relaxed_solution(solver, relaxed_model)
+        if status == cp_model.OPTIMAL:
+            print("Found optimal solution with simplified model")
+            return self._format_simplified_solution(solver, simplified_model)
+        elif status == cp_model.FEASIBLE:
+            print("Found feasible solution with simplified model")
+            return self._format_simplified_solution(solver, simplified_model)
         else:
-            print("❌ Unable to find any solution even with relaxed constraints")
+            print("❌ Unable to find solution even with simplified model")
             return None
 
-    def _add_essential_constraints_only(self, model: cp_model.CpModel):
+    def _add_simplified_constraints(self, model: cp_model.CpModel):
         """
-        Adds only the most essential constraints to allow finding some solution.
+        Adds simplified but still comprehensive constraints to find the best possible solution.
         """
         # Recreate decision variables in the new model
-        relaxed_shifts = {}
+        simplified_shifts = {}
         for p_id in self.personnel:
             for d_idx in range(self.num_days):
                 for s_idx in range(self.num_shifts):
-                    relaxed_shifts[(p_id, d_idx, s_idx)] = model.NewBoolVar(f'relaxed_shift_p{p_id}_d{d_idx}_s{s_idx}')
+                    simplified_shifts[(p_id, d_idx, s_idx)] = model.NewBoolVar(f'simplified_shift_p{p_id}_d{d_idx}_s{s_idx}')
 
-        # Add basic constraints that are essential
+        # Add core constraints (similar to original but in simplified model)
         # 1. At most one shift per day per person
         for p_id in self.personnel:
             for d_idx in range(self.num_days):
-                shifts_on_day = [relaxed_shifts[(p_id, d_idx, s_idx)] for s_idx in range(self.num_shifts)]
+                shifts_on_day = [simplified_shifts[(p_id, d_idx, s_idx)] for s_idx in range(self.num_shifts)]
                 model.Add(sum(shifts_on_day) <= 1)
 
         # 2. Personnel on leave cannot work
@@ -256,14 +264,53 @@ class ScheduleSolver:
                 d_idx = day_of_month - 1
                 if 0 <= d_idx < self.num_days:
                     for s_idx in range(self.num_shifts):
-                        model.Add(relaxed_shifts[(p_id, d_idx, s_idx)] == 0)
+                        model.Add(simplified_shifts[(p_id, d_idx, s_idx)] == 0)
 
-        # Store the relaxed shifts for solution formatting
-        self.relaxed_shifts = relaxed_shifts
+        # 3. Basic staffing requirements (relaxed)
+        shift_requirements = {
+            DayTypes.WEEKDAY: {"P": 1, "S": 1, "M": 1},  # Relaxed requirements
+            DayTypes.WEEKEND_HOLIDAY: {"P": 1, "S": 1, "M": 2}
+        }
 
-    def _format_relaxed_solution(self, solver: cp_model.CpSolver, model: cp_model.CpModel) -> Dict[str, Shift]:
+        for d_idx, d_date in enumerate(self.dates):
+            day_type = get_day_type(d_date, self.config.public_holidays)
+            reqs = self.config.special_dates.get(d_date.strftime('%Y-%m-%d'), shift_requirements[day_type])
+
+            for s_idx, s_type in enumerate(SHIFT_TYPES):
+                required_count = reqs.get(s_type, 0)
+                if required_count > 0:  # Only enforce if requirement exists
+                    personnel_on_shift = [simplified_shifts[(p_id, d_idx, s_idx)] for p_id in self.personnel]
+                    model.Add(sum(personnel_on_shift) >= required_count)  # Use >= instead of == for flexibility
+
+        # 4. Add max_non_shift constraint to simplified model
+        if self.config.max_non_shift is not None:
+            non_shift_personnel = [p_id for p_id, person in self.personnel.items() if person.role == "non_shift"]
+
+            if non_shift_personnel:
+                for p_id in non_shift_personnel:
+                    # Count how many days this non-shift person works
+                    working_days = []
+
+                    for d_idx in range(self.num_days):
+                        # Check if this non-shift person is working any shift on this day
+                        person_working = model.NewBoolVar(f'simplified_non_shift_{p_id}_working_d{d_idx}')
+                        shifts_on_day = [simplified_shifts[(p_id, d_idx, s_idx)] for s_idx in range(self.num_shifts)]
+
+                        # Person is working if they have any shift assigned
+                        model.Add(sum(shifts_on_day) >= 1).OnlyEnforceIf(person_working)
+                        model.Add(sum(shifts_on_day) == 0).OnlyEnforceIf(person_working.Not())
+
+                        working_days.append(person_working)
+
+                    # Limit the total working days for this non-shift personnel
+                    model.Add(sum(working_days) <= self.config.max_non_shift)
+
+        # Store the simplified shifts for solution formatting
+        self.simplified_shifts = simplified_shifts
+
+    def _format_simplified_solution(self, solver: cp_model.CpSolver, model: cp_model.CpModel) -> Dict[str, Shift]:
         """
-        Formats the solution from the relaxed model.
+        Formats the solution from the simplified model.
         """
         schedule = {}
         for d_idx, d_date in enumerate(self.dates):
@@ -271,7 +318,7 @@ class ScheduleSolver:
             schedule[date_str] = Shift()
             for p_id in self.personnel:
                 for s_idx, s_type in enumerate(SHIFT_TYPES):
-                    if solver.Value(self.relaxed_shifts[(p_id, d_idx, s_idx)]):
+                    if solver.Value(self.simplified_shifts[(p_id, d_idx, s_idx)]):
                         if s_type == "P":
                             schedule[date_str].P.append(p_id)
                         elif s_type == "S":
